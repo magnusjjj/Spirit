@@ -9,6 +9,8 @@ from django.core.exceptions import PermissionDenied
 from django.contrib.auth.models import User as UserModel
 from django.contrib.auth import get_user_model
 
+from djconfig.utils import override_djconfig
+
 from . import utils
 
 from spirit.views.admin import user, category, comment_flag, config, index, topic
@@ -78,6 +80,17 @@ class AdminViewTest(TestCase):
         response = self.client.get(reverse('spirit:admin-user-list'))
         self.assertQuerysetEqual(response.context['users'], map(repr, [self.user, ]))
 
+    @override_djconfig(topics_per_page=1)
+    def test_user_list_paginate(self):
+        """
+        List of all users paginated
+        """
+        user2 = utils.create_user()
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-user-list'))
+        self.assertQuerysetEqual(response.context['users'], map(repr, [user2, ]))
+
     def test_user_admins(self):
         """
         List of admins
@@ -86,11 +99,34 @@ class AdminViewTest(TestCase):
         response = self.client.get(reverse('spirit:admin-user-admins'))
         self.assertQuerysetEqual(response.context['users'], map(repr, [self.user, ]))
 
+    @override_djconfig(topics_per_page=1)
+    def test_user_admins_paginate(self):
+        """
+        List of admins paginated
+        """
+        user2 = utils.create_user(is_administrator=True)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-user-admins'))
+        self.assertQuerysetEqual(response.context['users'], map(repr, [user2, ]))
+
     def test_user_mods(self):
         """
-        List of admins
+        List of mods
         """
         mod = utils.create_user(is_moderator=True)
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-user-mods'))
+        self.assertQuerysetEqual(response.context['users'], map(repr, [mod, ]))
+
+    @override_djconfig(topics_per_page=1)
+    def test_user_mods_paginate(self):
+        """
+        List of mods paginated
+        """
+        utils.create_user(is_moderator=True)
+        mod = utils.create_user(is_moderator=True)
+
         utils.login(self)
         response = self.client.get(reverse('spirit:admin-user-mods'))
         self.assertQuerysetEqual(response.context['users'], map(repr, [mod, ]))
@@ -104,6 +140,20 @@ class AdminViewTest(TestCase):
         utils.login(self)
         response = self.client.get(reverse('spirit:admin-user-unactive'))
         self.assertQuerysetEqual(response.context['users'], map(repr, [unactive, ]))
+
+    @override_djconfig(topics_per_page=1)
+    def test_user_unactive_paginate(self):
+        """
+        List of unactive paginated
+        """
+        unactive = utils.create_user()
+        User.objects.filter(pk=unactive.pk).update(is_active=False)
+        unactive2 = utils.create_user()
+        User.objects.filter(pk=unactive2.pk).update(is_active=False)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-user-unactive'))
+        self.assertQuerysetEqual(response.context['users'], map(repr, [unactive2, ]))
 
     def test_index_dashboard(self):
         utils.login(self)
@@ -119,10 +169,33 @@ class AdminViewTest(TestCase):
         response = self.client.get(reverse('spirit:admin-topic-deleted'))
         self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_, ]))
 
+    @override_djconfig(topics_per_page=1)
+    def test_topic_deleted_paginate(self):
+        """
+        Deleted topics paginated
+        """
+        utils.create_topic(self.category, is_removed=True)
+        topic_ = utils.create_topic(self.category, is_removed=True)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-topic-deleted'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_, ]))
+
     def test_topic_closed(self):
         """
         Closed topics
         """
+        topic_ = utils.create_topic(self.category, is_closed=True)
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-topic-closed'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_, ]))
+
+    @override_djconfig(topics_per_page=1)
+    def test_topic_closed_paginate(self):
+        """
+        Closed topics paginated
+        """
+        utils.create_topic(self.category, is_closed=True)
         topic_ = utils.create_topic(self.category, is_closed=True)
         utils.login(self)
         response = self.client.get(reverse('spirit:admin-topic-closed'))
@@ -137,11 +210,22 @@ class AdminViewTest(TestCase):
         response = self.client.get(reverse('spirit:admin-topic-pinned'))
         self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_, ]))
 
+    @override_djconfig(topics_per_page=1)
+    def test_topic_pinned_paginate(self):
+        """
+        Pinned topics paginated
+        """
+        utils.create_topic(self.category, is_pinned=True)
+        topic_ = utils.create_topic(self.category, is_pinned=True)
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-topic-pinned'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_, ]))
+
     def test_category_list(self):
         """
         Categories, excludes Topic Private and subcats
         """
-        subcat = utils.create_category(parent=self.category)
+        utils.create_category(parent=self.category)
         categories = Category.objects.filter(is_private=False, parent=None)
         utils.login(self)
         response = self.client.get(reverse('spirit:admin-category-list'))
@@ -180,7 +264,7 @@ class AdminViewTest(TestCase):
         Config
         """
         utils.login(self)
-        form_data = {"site_name": "foo", "site_description": "bar"}
+        form_data = {"site_name": "foo", "site_description": "bar", "comments_per_page": 10, "topics_per_page": 10}
         response = self.client.post(reverse('spirit:admin-config-basic'),
                                     form_data)
         expected_url = reverse('spirit:admin-config-basic')
@@ -195,7 +279,21 @@ class AdminViewTest(TestCase):
         """
         comment = utils.create_comment(topic=self.topic)
         comment2 = utils.create_comment(topic=self.topic)
-        flag_closed = CommentFlag.objects.create(comment=comment2, is_closed=True)
+        CommentFlag.objects.create(comment=comment2, is_closed=True)
+        flag_ = CommentFlag.objects.create(comment=comment)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-flag-open'))
+        self.assertQuerysetEqual(response.context['flags'], map(repr, [flag_, ]))
+
+    @override_djconfig(comments_per_page=1)
+    def test_flag_open_paginate(self):
+        """
+        Open flags paginated
+        """
+        comment = utils.create_comment(topic=self.topic)
+        comment2 = utils.create_comment(topic=self.topic)
+        CommentFlag.objects.create(comment=comment2)
         flag_ = CommentFlag.objects.create(comment=comment)
 
         utils.login(self)
@@ -209,7 +307,21 @@ class AdminViewTest(TestCase):
         comment = utils.create_comment(topic=self.topic)
         comment2 = utils.create_comment(topic=self.topic)
         flag_closed = CommentFlag.objects.create(comment=comment2, is_closed=True)
-        flag_ = CommentFlag.objects.create(comment=comment)
+        CommentFlag.objects.create(comment=comment)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-flag-closed'))
+        self.assertQuerysetEqual(response.context['flags'], map(repr, [flag_closed, ]))
+
+    @override_djconfig(comments_per_page=1)
+    def test_flag_open_paginate(self):
+        """
+        Open flags paginated
+        """
+        comment = utils.create_comment(topic=self.topic)
+        comment2 = utils.create_comment(topic=self.topic)
+        CommentFlag.objects.create(comment=comment2, is_closed=True)
+        flag_closed = CommentFlag.objects.create(comment=comment, is_closed=True)
 
         utils.login(self)
         response = self.client.get(reverse('spirit:admin-flag-closed'))
@@ -224,8 +336,8 @@ class AdminViewTest(TestCase):
         flag_ = Flag.objects.create(comment=comment, user=self.user, reason=0)
 
         comment2 = utils.create_comment(topic=self.topic)
-        comment_flag2 = CommentFlag.objects.create(comment=comment2)
-        flag_2 = Flag.objects.create(comment=comment2, user=self.user, reason=0)
+        CommentFlag.objects.create(comment=comment2)
+        Flag.objects.create(comment=comment2, user=self.user, reason=0)
 
         utils.login(self)
         form_data = {"is_closed": True, }
@@ -237,6 +349,22 @@ class AdminViewTest(TestCase):
         response = self.client.get(reverse('spirit:admin-flag-detail', kwargs={'pk': comment_flag.pk, }))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(repr(response.context['flag']), repr(comment_flag))
+        self.assertQuerysetEqual(response.context['flags'], map(repr, [flag_, ]))
+
+    @override_djconfig(comments_per_page=1)
+    def test_flag_detail_paginate(self):
+        """
+        flag detail paginated
+        """
+        user2 = utils.create_user()
+        comment = utils.create_comment(topic=self.topic)
+        comment_flag = CommentFlag.objects.create(comment=comment)
+        Flag.objects.create(comment=comment, user=user2, reason=0)
+        flag_ = Flag.objects.create(comment=comment, user=self.user, reason=0)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:admin-flag-detail', kwargs={'pk': comment_flag.pk, }))
+        self.assertEqual(response.status_code, 200)
         self.assertQuerysetEqual(response.context['flags'], map(repr, [flag_, ]))
 
 
@@ -312,13 +440,17 @@ class AdminFormTest(TestCase):
         """
         form_data = {"site_name": "foo",
                      "site_description": "",
-                     "template_footer": ""}
+                     "template_footer": "",
+                     "comments_per_page": 10,
+                     "topics_per_page": 10}
         form = BasicConfigForm(data=form_data)
         self.assertEqual(form.is_valid(), True)
 
         form_data = {"site_name": "foo",
                      "site_description": "bar",
-                     "template_footer": "foobar"}
+                     "template_footer": "foobar",
+                     "comments_per_page": 10,
+                     "topics_per_page": 10}
         form = BasicConfigForm(data=form_data)
         self.assertEqual(form.is_valid(), True)
 

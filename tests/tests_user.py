@@ -12,6 +12,8 @@ from django.core import mail
 from django.utils.translation import ugettext as _
 from django.utils import timezone
 
+from djconfig.utils import override_djconfig
+
 from . import utils
 
 from spirit.forms.user import RegistrationForm, UserProfileForm, EmailChangeForm, ResendActivationForm
@@ -21,6 +23,7 @@ from spirit.utils.user.tokens import UserActivationTokenGenerator, UserEmailChan
 from spirit.models.user import User as UserModel
 from spirit.models.topic import Topic
 from spirit.models.comment import Comment
+from spirit.models.comment_bookmark import CommentBookmark
 
 
 User = get_user_model()
@@ -132,6 +135,32 @@ class UserViewTest(TestCase):
                                                                             'slug': self.user2.slug}))
         self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_b, topic_c, topic_a]))
 
+    def test_profile_topics_bookmarks(self):
+        """
+        profile user's topics with bookmarks
+        """
+        bookmark = CommentBookmark.objects.create(topic=self.topic, user=self.user)
+
+        utils.login(self)
+        response = self.client.get(reverse("spirit:profile-topics",
+                                           kwargs={'pk': self.user2.pk, 'slug': self.user2.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerysetEqual(response.context['topics'], [repr(self.topic), ])
+        self.assertEqual(response.context['topics'][0].bookmark, bookmark)
+
+    @override_djconfig(topics_per_page=1)
+    def test_profile_topics_paginate(self):
+        """
+        profile user's topics paginated
+        """
+        topic = utils.create_topic(self.category, user=self.user2)
+
+        utils.login(self)
+        response = self.client.get(reverse("spirit:profile-topics", kwargs={'pk': self.user2.pk,
+                                                                            'slug': self.user2.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerysetEqual(response.context['topics'], [repr(topic), ])
+
     def test_profile_topics_dont_show_removed_or_private(self):
         """
         dont show private topics or removed
@@ -142,11 +171,11 @@ class UserViewTest(TestCase):
         category_removed = utils.create_category(is_removed=True)
         subcategory = utils.create_category(parent=category_removed)
         subcategory_removed = utils.create_category(parent=category, is_removed=True)
-        topic_a = utils.create_private_topic(user=self.user2)
-        topic_b = utils.create_topic(category=category, user=self.user2, is_removed=True)
-        topic_c = utils.create_topic(category=category_removed, user=self.user2)
-        topic_d = utils.create_topic(category=subcategory, user=self.user2)
-        topic_e = utils.create_topic(category=subcategory_removed, user=self.user2)
+        utils.create_private_topic(user=self.user2)
+        utils.create_topic(category=category, user=self.user2, is_removed=True)
+        utils.create_topic(category=category_removed, user=self.user2)
+        utils.create_topic(category=subcategory, user=self.user2)
+        utils.create_topic(category=subcategory_removed, user=self.user2)
 
         utils.login(self)
         response = self.client.get(reverse("spirit:profile-topics", kwargs={'pk': self.user2.pk,
@@ -170,7 +199,7 @@ class UserViewTest(TestCase):
         """
         utils.login(self)
         comment = utils.create_comment(user=self.user2, topic=self.topic)
-        comment2 = utils.create_comment(user=self.user, topic=self.topic)
+        utils.create_comment(user=self.user, topic=self.topic)
         response = self.client.get(reverse("spirit:profile-detail", kwargs={'pk': self.user2.pk,
                                                                             'slug': self.user2.slug}))
         self.assertEqual(response.status_code, 200)
@@ -193,6 +222,20 @@ class UserViewTest(TestCase):
                                                                             'slug': self.user2.slug}))
         self.assertQuerysetEqual(response.context['comments'], map(repr, [comment_b, comment_c, comment_a]))
 
+    @override_djconfig(comments_per_page=1)
+    def test_profile_comments_paginate(self):
+        """
+        profile user's comments paginated
+        """
+        utils.create_comment(user=self.user2, topic=self.topic)
+        comment = utils.create_comment(user=self.user2, topic=self.topic)
+
+        utils.login(self)
+        response = self.client.get(reverse("spirit:profile-detail", kwargs={'pk': self.user2.pk,
+                                                                            'slug': self.user2.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerysetEqual(response.context['comments'], [repr(comment), ])
+
     def test_profile_comments_dont_show_removed_or_private(self):
         """
         dont show private topics or removed
@@ -206,11 +249,11 @@ class UserViewTest(TestCase):
         topic_c = utils.create_topic(category=category_removed)
         topic_d = utils.create_topic(category=subcategory)
         topic_e = utils.create_topic(category=subcategory_removed)
-        comment_a = utils.create_comment(user=self.user2, topic=topic_a.topic)
-        comment_b = utils.create_comment(user=self.user2, topic=topic_b)
-        comment_c = utils.create_comment(user=self.user2, topic=topic_c)
-        comment_d = utils.create_comment(user=self.user2, topic=topic_d)
-        comment_e = utils.create_comment(user=self.user2, topic=topic_e)
+        utils.create_comment(user=self.user2, topic=topic_a.topic)
+        utils.create_comment(user=self.user2, topic=topic_b)
+        utils.create_comment(user=self.user2, topic=topic_c)
+        utils.create_comment(user=self.user2, topic=topic_d)
+        utils.create_comment(user=self.user2, topic=topic_e)
 
         utils.login(self)
         response = self.client.get(reverse("spirit:profile-detail", kwargs={'pk': self.user2.pk,
@@ -236,7 +279,7 @@ class UserViewTest(TestCase):
         comment = utils.create_comment(user=self.user, topic=self.topic)
         comment2 = utils.create_comment(user=self.user2, topic=self.topic)
         like = CommentLike.objects.create(user=self.user2, comment=comment)
-        like2 = CommentLike.objects.create(user=self.user, comment=comment2)
+        CommentLike.objects.create(user=self.user, comment=comment2)
         response = self.client.get(reverse("spirit:profile-likes", kwargs={'pk': self.user2.pk,
                                                                            'slug': self.user2.slug}))
         self.assertEqual(response.status_code, 200)
@@ -251,7 +294,7 @@ class UserViewTest(TestCase):
         comment_b = utils.create_comment(user=self.user, topic=self.topic)
         comment_c = utils.create_comment(user=self.user, topic=self.topic)
         like_a = CommentLike.objects.create(user=self.user2, comment=comment_a)
-        like_b = CommentLike.objects.create(user=self.user2, comment=comment_b)
+        CommentLike.objects.create(user=self.user2, comment=comment_b)
         like_c = CommentLike.objects.create(user=self.user2, comment=comment_c)
 
         CommentLike.objects.filter(pk=like_a.pk).update(date=timezone.now() - datetime.timedelta(days=10))
@@ -280,11 +323,11 @@ class UserViewTest(TestCase):
         comment_c = utils.create_comment(user=self.user, topic=topic_c)
         comment_d = utils.create_comment(user=self.user, topic=topic_d)
         comment_e = utils.create_comment(user=self.user, topic=topic_e)
-        like_a = CommentLike.objects.create(user=self.user2, comment=comment_a)
-        like_b = CommentLike.objects.create(user=self.user2, comment=comment_b)
-        like_c = CommentLike.objects.create(user=self.user2, comment=comment_c)
-        like_d = CommentLike.objects.create(user=self.user2, comment=comment_d)
-        like_e = CommentLike.objects.create(user=self.user2, comment=comment_e)
+        CommentLike.objects.create(user=self.user2, comment=comment_a)
+        CommentLike.objects.create(user=self.user2, comment=comment_b)
+        CommentLike.objects.create(user=self.user2, comment=comment_c)
+        CommentLike.objects.create(user=self.user2, comment=comment_d)
+        CommentLike.objects.create(user=self.user2, comment=comment_e)
 
         utils.login(self)
         response = self.client.get(reverse("spirit:profile-likes", kwargs={'pk': self.user2.pk,
@@ -301,6 +344,22 @@ class UserViewTest(TestCase):
         expected_url = reverse("spirit:profile-likes", kwargs={'pk': self.user2.pk,
                                                                'slug': self.user2.slug})
         self.assertRedirects(response, expected_url, status_code=301)
+
+    @override_djconfig(comments_per_page=1)
+    def test_profile_likes_paginate(self):
+        """
+        profile user's likes paginate
+        """
+        comment = utils.create_comment(user=self.user2, topic=self.topic)
+        comment2 = utils.create_comment(user=self.user2, topic=self.topic)
+        CommentLike.objects.create(user=self.user2, comment=comment)
+        like = CommentLike.objects.create(user=self.user2, comment=comment2)
+
+        utils.login(self)
+        response = self.client.get(reverse("spirit:profile-likes", kwargs={'pk': self.user2.pk,
+                                                                           'slug': self.user2.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerysetEqual(response.context['comments'], [repr(like.comment), ])
 
     def test_profile_update(self):
         """
@@ -390,6 +449,7 @@ class UserViewTest(TestCase):
         """
         registration activation
         """
+        self.user.is_verified = False
         self.user.is_active = False
         self.user.save()
         token = UserActivationTokenGenerator().generate(self.user)
@@ -401,14 +461,14 @@ class UserViewTest(TestCase):
 
     def test_registration_activation_invalid(self):
         """
-        Activation token should expire after first login
+        Activation token should not work if user is verified
         ActiveUserMiddleware required
         """
-        self.user.last_login = self.user.last_login - datetime.timedelta(hours=1)
+        self.user.is_verified = False
         token = UserActivationTokenGenerator().generate(self.user)
 
         utils.login(self)
-        User.objects.filter(pk=self.user.pk).update(is_active=False)
+        User.objects.filter(pk=self.user.pk).update(is_active=False, is_verified=True)
         response = self.client.get(reverse('spirit:registration-activation', kwargs={'pk': self.user.pk,
                                                                                      'token': token}))
         expected_url = reverse("spirit:user-login")
@@ -481,9 +541,9 @@ class UserViewTest(TestCase):
 
     def test_resend_activation_email_invalid_previously_logged_in(self):
         """
-        resend_activation_email invalid if last_ip was set
+        resend_activation_email invalid if is_verified was set
         """
-        user = utils.create_user(password="foo", last_ip="1.1.1.1")
+        user = utils.create_user(password="foo", is_verified=True)
 
         form_data = {'email': user.email,
                      'password': "foo"}
@@ -496,7 +556,7 @@ class UserViewTest(TestCase):
         """
         resend_activation_email invalid password
         """
-        user = utils.create_user(password="foo")
+        utils.create_user(password="foo")
 
         form_data = {'email': "bad@foo.com", }
         response = self.client.post(reverse('spirit:resend-activation'),

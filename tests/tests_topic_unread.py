@@ -5,10 +5,14 @@ from __future__ import unicode_literals
 from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase, RequestFactory
 from django.core.urlresolvers import reverse
+from django.conf import settings
 
 from . import utils
 
-from spirit.models.topic_unread import TopicUnread, topic_viewed, comment_posted
+from spirit.models.topic_unread import TopicUnread
+from spirit.signals.topic import topic_viewed
+from spirit.signals.comment import comment_posted
+from spirit.models.comment_bookmark import CommentBookmark
 
 
 class TopicUnreadViewTest(TestCase):
@@ -71,11 +75,11 @@ class TopicUnreadViewTest(TestCase):
         topic_c = utils.create_topic(category=category_removed)
         topic_d = utils.create_topic(category=subcategory)
         topic_e = utils.create_topic(category=subcategory_removed)
-        unread_a = TopicUnread.objects.create(user=self.user, topic=topic_a.topic, is_read=False)
-        unread_b = TopicUnread.objects.create(user=self.user, topic=topic_b, is_read=False)
-        unread_c = TopicUnread.objects.create(user=self.user, topic=topic_c, is_read=False)
-        unread_d = TopicUnread.objects.create(user=self.user, topic=topic_d, is_read=False)
-        unread_e = TopicUnread.objects.create(user=self.user, topic=topic_e, is_read=False)
+        TopicUnread.objects.create(user=self.user, topic=topic_a.topic, is_read=False)
+        TopicUnread.objects.create(user=self.user, topic=topic_b, is_read=False)
+        TopicUnread.objects.create(user=self.user, topic=topic_c, is_read=False)
+        TopicUnread.objects.create(user=self.user, topic=topic_d, is_read=False)
+        TopicUnread.objects.create(user=self.user, topic=topic_e, is_read=False)
 
         utils.login(self)
         response = self.client.get(reverse('spirit:topic-unread-list'))
@@ -107,12 +111,22 @@ class TopicUnreadViewTest(TestCase):
         response = self.client.get(reverse('spirit:topic-unread-list') + "?topic_id=" + str(self.topic.pk))
         self.assertEqual(response.status_code, 404)
 
+    def test_topic_unread_list_bookmarks(self):
+        """
+        topic unread list with bookmarks
+        """
+        TopicUnread.objects\
+            .filter(pk__in=[self.topic_unread.pk, self.topic_unread2.pk])\
+            .update(is_read=False)
+        bookmark = CommentBookmark.objects.create(topic=self.topic2, user=self.user)
 
-class TopicUnreadSignalTest(TransactionTestCase):  # since signal raises IntegrityError
+        utils.login(self)
+        response = self.client.get(reverse('spirit:topic-unread-list'))
+        self.assertQuerysetEqual(response.context['page'], map(repr, [self.topic2, self.topic]))
+        self.assertEqual(response.context['page'][0].bookmark, bookmark)
 
-    # Needed to work with migrations when using TransactionTestCase
-    available_apps = ["spirit", ]
-    serialized_rollback = True
+
+class TopicUnreadSignalTest(TestCase):
 
     def setUp(self):
         cache.clear()

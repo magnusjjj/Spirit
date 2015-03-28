@@ -12,11 +12,15 @@ Spirit example application in this directory:
     $ cd example
     $ python manage.py migrate
 	$ python manage.py createcachetable spirit_cache
+    $ export SECRET_KEY="My dev box"
     $ python manage.py runserver
+
+> **Note:**
+>
+> When running on production, remember to set the SECRET_KEY environment 
+> variable or use your own setting file to set it.
+>
+> If you want to give it a quick spin, run `$ python manage.py runserver --settings=project.settings.dev`
 
 You should then be able to open your browser on http://127.0.0.1:8000 and
 see the Spirit homepage.
-
-##Credits
-
-This example project is inspired by django-allauth [example.](https://github.com/pennersr/django-allauth/tree/master/example)

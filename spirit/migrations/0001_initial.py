@@ -17,6 +17,8 @@ class Migration(migrations.Migration):
         ('contenttypes', '0001_initial'),
     ]
 
+    dependencies.extend(settings.ST_INITIAL_MIGRATION_DEPENDENCIES)
+
     operations = [
         migrations.CreateModel(
             name='User',

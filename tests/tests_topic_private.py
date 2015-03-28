@@ -12,6 +12,8 @@ from django.conf import settings
 from django.utils import six
 from django.utils import timezone
 
+from djconfig.utils import override_djconfig
+
 from . import utils
 
 from spirit.models.category import Category
@@ -23,6 +25,7 @@ from spirit.views.topic_private import comment_posted
 from spirit.models.comment import Comment
 from spirit.signals.topic_private import topic_private_post_create, topic_private_access_pre_create
 from spirit.models.topic import Topic
+from spirit.models.comment_bookmark import CommentBookmark
 
 
 class TopicPrivateViewTest(TestCase):
@@ -100,9 +103,37 @@ class TopicPrivateViewTest(TestCase):
         """
         utils.login(self)
         private = utils.create_private_topic(user=self.user)
+
+        comment1 = utils.create_comment(topic=private.topic)
+        comment2 = utils.create_comment(topic=private.topic)
+
+        category = utils.create_category()
+        topic2 = utils.create_topic(category=category)
+        utils.create_comment(topic=topic2)
+
         response = self.client.get(reverse('spirit:private-detail', kwargs={'topic_id': private.topic.pk,
                                                                             'slug': private.topic.slug}))
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['topic'], private.topic)
+        self.assertQuerysetEqual(response.context['comments'], map(repr, [comment1, comment2]))
+
+    @override_djconfig(comments_per_page=2)
+    def test_private_detail_view_paginate(self):
+        """
+        should display topic with comments, page 1
+        """
+        utils.login(self)
+        private = utils.create_private_topic(user=self.user)
+
+        comment1 = utils.create_comment(topic=private.topic)
+        comment2 = utils.create_comment(topic=private.topic)
+        utils.create_comment(topic=private.topic)  # comment3
+
+        response = self.client.get(reverse('spirit:private-detail', kwargs={'topic_id': private.topic.pk,
+                                                                            'slug': private.topic.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['topic'], private.topic)
+        self.assertQuerysetEqual(response.context['comments'], map(repr, [comment1, comment2]))
 
     def test_private_access_create(self):
         """
@@ -192,10 +223,10 @@ class TopicPrivateViewTest(TestCase):
         """
         private = utils.create_private_topic(user=self.user)
         # dont show private topics from other users
-        private2 = TopicPrivate.objects.create(user=self.user2, topic=private.topic)
+        TopicPrivate.objects.create(user=self.user2, topic=private.topic)
         # dont show topics from other categories
         category = utils.create_category()
-        topic = utils.create_topic(category, user=self.user)
+        utils.create_topic(category, user=self.user)
 
         utils.login(self)
         response = self.client.get(reverse('spirit:private-list'))
@@ -216,6 +247,30 @@ class TopicPrivateViewTest(TestCase):
         response = self.client.get(reverse('spirit:private-list'))
         self.assertQuerysetEqual(response.context['topics'], map(repr, [private_b.topic, private_c.topic,
                                                                         private_a.topic]))
+
+    def test_private_list_bookmarks(self):
+        """
+        private topic list with bookmarks
+        """
+        private = utils.create_private_topic(user=self.user)
+        bookmark = CommentBookmark.objects.create(topic=private.topic, user=self.user)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:private-list'))
+        self.assertQuerysetEqual(response.context['topics'], [repr(private.topic), ])
+        self.assertEqual(response.context['topics'][0].bookmark, bookmark)
+
+    @override_djconfig(topics_per_page=1)
+    def test_private_list(self):
+        """
+        private topic list paginated
+        """
+        utils.create_private_topic(user=self.user)
+        private = utils.create_private_topic(user=self.user)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:private-list'))
+        self.assertQuerysetEqual(response.context['topics'], [repr(private.topic), ])
 
     def test_private_join(self):
         """
@@ -284,14 +339,14 @@ class TopicPrivateViewTest(TestCase):
         private topic created list, shows only the private topics the user is no longer participating
         """
         category = utils.create_category()
-        regular_topic = utils.create_topic(category, user=self.user)
+        utils.create_topic(category, user=self.user)
         # it's the owner, left the topic
         private = utils.create_private_topic(user=self.user)
         private.delete()
         # has access and is the owner
-        private2 = utils.create_private_topic(user=self.user)
+        utils.create_private_topic(user=self.user)
         # does not has access
-        private3 = utils.create_private_topic(user=self.user2)
+        utils.create_private_topic(user=self.user2)
         # has access but it's not owner
         private4 = utils.create_private_topic(user=self.user2)
         TopicPrivate.objects.create(user=self.user, topic=private4.topic)
@@ -318,6 +373,20 @@ class TopicPrivateViewTest(TestCase):
         response = self.client.get(reverse('spirit:private-created-list'))
         self.assertQuerysetEqual(response.context['topics'], map(repr, [private_b.topic, private_c.topic,
                                                                         private_a.topic]))
+
+    @override_djconfig(topics_per_page=1)
+    def test_private_created_list_paginate(self):
+        """
+        private topic created list paginated
+        """
+        private = utils.create_private_topic(user=self.user)
+        private.delete()
+        private2 = utils.create_private_topic(user=self.user)
+        private2.delete()
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:private-created-list'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [private2.topic, ]))
 
 
 class TopicPrivateFormTest(TestCase):

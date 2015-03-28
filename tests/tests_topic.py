@@ -8,17 +8,20 @@ from django.test import TestCase, RequestFactory
 from django.core.cache import cache
 from django.core.urlresolvers import reverse
 from django.utils import timezone
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+
+from djconfig.utils import override_djconfig
 
 from . import utils
 
-from spirit.models.comment import MOVED, CLOSED, UNCLOSED, PINNED, UNPINNED
-from spirit.models.topic import Topic, topic_viewed, comment_posted, comment_moved
+from spirit.models.comment import MOVED
+from spirit.models.topic import Topic
+from spirit.signals.comment import comment_posted, comment_moved
+from spirit.signals.topic import topic_viewed
 from spirit.forms.topic import TopicForm
-from spirit.signals.topic import topic_post_moderate
+from spirit.signals.topic_moderate import topic_post_moderate
 from spirit.models.comment import Comment
-from spirit.models.category import Category
+from spirit.models.comment_bookmark import CommentBookmark
 from spirit.forms.topic_poll import TopicPollForm, TopicPollChoiceFormSet
 
 
@@ -60,7 +63,7 @@ class TopicViewTest(TestCase):
         """
         utils.login(self)
         category = utils.create_category()
-        title = "a" * 75
+        title = "a" * 255
         form_data = {'comment': 'foo', 'title': title, 'category': category.pk,
                      'choices-TOTAL_FORMS': 2, 'choices-INITIAL_FORMS': 0, 'choice_limit': 1}
         response = self.client.post(reverse('spirit:topic-publish'),
@@ -182,8 +185,8 @@ class TopicViewTest(TestCase):
         topic = utils.create_topic(category=category, user=self.user)
         category2 = utils.create_category()
         form_data = {'title': 'foobar', 'category': category2.pk}
-        response = self.client.post(reverse('spirit:topic-update', kwargs={'pk': topic.pk, }),
-                                    form_data)
+        self.client.post(reverse('spirit:topic-update', kwargs={'pk': topic.pk, }),
+                         form_data)
         self.assertSequenceEqual(self._moderate, [repr(self.user), repr(Topic.objects.get(pk=topic.pk)), MOVED])
 
     def test_topic_update_invalid_user(self):
@@ -200,14 +203,40 @@ class TopicViewTest(TestCase):
 
     def test_topic_detail_view(self):
         """
-        should display topic
+        should display topic with comments
         """
         utils.login(self)
         category = utils.create_category()
+
         topic = utils.create_topic(category=category)
+        topic2 = utils.create_topic(category=category)
+
+        comment1 = utils.create_comment(topic=topic)
+        comment2 = utils.create_comment(topic=topic)
+        utils.create_comment(topic=topic2)
+
         response = self.client.get(reverse('spirit:topic-detail', kwargs={'pk': topic.pk, 'slug': topic.slug}))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['topic'], topic)
+        self.assertQuerysetEqual(response.context['comments'], map(repr, [comment1, comment2]))
+
+    @override_djconfig(comments_per_page=2)
+    def test_topic_detail_view_paginate(self):
+        """
+        should display topic with comments, page 1
+        """
+        utils.login(self)
+        category = utils.create_category()
+
+        topic = utils.create_topic(category=category)
+
+        comment1 = utils.create_comment(topic=topic)
+        comment2 = utils.create_comment(topic=topic)
+        utils.create_comment(topic=topic)  # comment3
+
+        response = self.client.get(reverse('spirit:topic-detail', kwargs={'pk': topic.pk, 'slug': topic.slug}))
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerysetEqual(response.context['comments'], map(repr, [comment1, comment2]))
 
     def test_topic_detail_view_signals(self):
         """
@@ -264,29 +293,18 @@ class TopicViewTest(TestCase):
 
     def test_topic_active_view_pinned(self):
         """
-        pinned topics. Only show pinned topics from uncategorized category, even if the category is removed
+        Show globally pinned topics first, regular pinned topics are shown as regular topics
         """
         category = utils.create_category()
-        # show topic from regular category
         topic_a = utils.create_topic(category=category)
-        # dont show pinned from regular category
         topic_b = utils.create_topic(category=category, is_pinned=True)
-
-        uncat_category = Category.objects.get(pk=settings.ST_UNCATEGORIZED_CATEGORY_PK)
-        # dont show pinned and removed
-        topic_c = utils.create_topic(category=uncat_category, is_pinned=True, is_removed=True)
-        # show topic from uncategorized category
-        topic_d = utils.create_topic(category=uncat_category, is_pinned=True)
-        # show pinned first
+        topic_c = utils.create_topic(category=category)
+        topic_d = utils.create_topic(category=category, is_globally_pinned=True)
+        # show globally pinned first
         Topic.objects.filter(pk=topic_d.pk).update(last_active=timezone.now() - datetime.timedelta(days=10))
 
         response = self.client.get(reverse('spirit:topic-active'))
-        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_d, topic_a, ]))
-
-        # show topic from uncategorized category even if it is removed
-        Category.objects.filter(pk=uncat_category.pk).update(is_removed=True)
-        response = self.client.get(reverse('spirit:topic-active'))
-        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_d, topic_a, ]))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_d, topic_c, topic_b, topic_a]))
 
     def test_topic_active_view_dont_show_private_or_removed(self):
         """
@@ -296,136 +314,47 @@ class TopicViewTest(TestCase):
         category_removed = utils.create_category(is_removed=True)
         subcategory = utils.create_category(parent=category_removed)
         subcategory_removed = utils.create_category(parent=category, is_removed=True)
-        topic_a = utils.create_private_topic()
-        topic_b = utils.create_topic(category=category, is_removed=True)
-        topic_c = utils.create_topic(category=category_removed)
-        topic_d = utils.create_topic(category=subcategory)
-        topic_e = utils.create_topic(category=subcategory_removed)
+        utils.create_private_topic()
+        utils.create_topic(category=category, is_removed=True)
+        utils.create_topic(category=category_removed)
+        utils.create_topic(category=subcategory)
+        utils.create_topic(category=subcategory_removed)
 
         response = self.client.get(reverse('spirit:topic-active'))
         self.assertQuerysetEqual(response.context['topics'], [])
 
-    def test_topic_moderate_delete(self):
+    def test_topic_active_view_bookmark(self):
         """
-        delete topic
-        """
-        utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
-        category = utils.create_category()
-        topic = utils.create_topic(category)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-delete', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertTrue(Topic.objects.get(pk=topic.pk).is_removed)
-
-    def test_topic_moderate_undelete(self):
-        """
-        undelete topic
+        topics with bookmarks
         """
         utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
         category = utils.create_category()
-        topic = utils.create_topic(category, is_removed=True)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-undelete', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertFalse(Topic.objects.get(pk=topic.pk).is_removed)
+        topic = utils.create_topic(category=category, user=self.user)
+        bookmark = CommentBookmark.objects.create(topic=topic, user=self.user)
 
-    def test_topic_moderate_lock(self):
+        user2 = utils.create_user()
+        CommentBookmark.objects.create(topic=topic, user=user2)
+
+        topic2 = utils.create_topic(category=category, user=self.user)
+        CommentBookmark.objects.create(topic=topic2, user=self.user)
+        ten_days_ago = timezone.now() - datetime.timedelta(days=10)
+        Topic.objects.filter(pk=topic2.pk).update(last_active=ten_days_ago)
+
+        response = self.client.get(reverse('spirit:topic-active'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic, topic2]))
+        self.assertEqual(response.context['topics'][0].bookmark, bookmark)
+
+    @override_djconfig(topics_per_page=1)
+    def test_topic_active_view_paginate(self):
         """
-        topic lock
+        topics ordered by activity paginated
         """
-        def topic_post_moderate_handler(sender, user, topic, action, **kwargs):
-            self._moderate = [repr(user._wrapped), repr(topic), action]
-        topic_post_moderate.connect(topic_post_moderate_handler)
-
-        utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
         category = utils.create_category()
-        topic = utils.create_topic(category)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-lock', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertTrue(Topic.objects.get(pk=topic.pk).is_closed)
-        self.assertEqual(self._moderate, [repr(self.user), repr(topic), CLOSED])
+        topic_a = utils.create_topic(category=category)
+        topic_b = utils.create_topic(category=category, user=self.user, view_count=10)
 
-    def test_topic_moderate_unlock(self):
-        """
-        unlock topic
-        """
-        def topic_post_moderate_handler(sender, user, topic, action, **kwargs):
-            self._moderate = [repr(user._wrapped), repr(topic), action]
-        topic_post_moderate.connect(topic_post_moderate_handler)
-
-        utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
-        category = utils.create_category()
-        topic = utils.create_topic(category, is_closed=True)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-unlock', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertFalse(Topic.objects.get(pk=topic.pk).is_closed)
-        self.assertEqual(self._moderate, [repr(self.user), repr(topic), UNCLOSED])
-
-    def test_topic_moderate_pin(self):
-        """
-        topic pin
-        """
-        def topic_post_moderate_handler(sender, user, topic, action, **kwargs):
-            self._moderate = [repr(user._wrapped), repr(topic), action]
-        topic_post_moderate.connect(topic_post_moderate_handler)
-
-        utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
-        category = utils.create_category()
-        topic = utils.create_topic(category)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-pin', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertTrue(Topic.objects.get(pk=topic.pk).is_pinned)
-        self.assertEqual(self._moderate, [repr(self.user), repr(topic), PINNED])
-
-    def test_topic_moderate_unpin(self):
-        """
-        topic unpin
-        """
-        def topic_post_moderate_handler(sender, user, topic, action, **kwargs):
-            self._moderate = [repr(user._wrapped), repr(topic), action]
-        topic_post_moderate.connect(topic_post_moderate_handler)
-
-        utils.login(self)
-        self.user.is_moderator = True
-        self.user.save()
-
-        category = utils.create_category()
-        topic = utils.create_topic(category, is_pinned=True)
-        form_data = {}
-        response = self.client.post(reverse('spirit:topic-unpin', kwargs={'pk': topic.pk, }),
-                                    form_data)
-        expected_url = topic.get_absolute_url()
-        self.assertRedirects(response, expected_url, status_code=302)
-        self.assertFalse(Topic.objects.get(pk=topic.pk).is_pinned)
-        self.assertEqual(self._moderate, [repr(self.user), repr(topic), UNPINNED])
+        response = self.client.get(reverse('spirit:topic-active'))
+        self.assertQuerysetEqual(response.context['topics'], map(repr, [topic_b, ]))
 
 
 class TopicFormTest(TestCase):
@@ -445,12 +374,24 @@ class TopicFormTest(TestCase):
         form = TopicForm(self.user, data=form_data)
         self.assertEqual(form.is_valid(), True)
 
-    def test_topic_publish_invalid_subcategory(self):
+    def test_topic_publish_invalid_closed_subcategory(self):
         """
-        invalid subcategory
+        invalid closed subcategory
         """
         category = utils.create_category()
         subcategory = utils.create_subcategory(category, is_closed=True)
+        form_data = {'comment': 'foo', 'title': 'foobar',
+                     'category': subcategory.pk}
+        form = TopicForm(self.user, data=form_data)
+        self.assertEqual(form.is_valid(), False)
+        self.assertNotIn('category', form.cleaned_data)
+
+    def test_topic_publish_invalid_removed_subcategory(self):
+        """
+        invalid removed subcategory
+        """
+        category = utils.create_category()
+        subcategory = utils.create_subcategory(category, is_removed=True)
         form_data = {'comment': 'foo', 'title': 'foobar',
                      'category': subcategory.pk}
         form = TopicForm(self.user, data=form_data)

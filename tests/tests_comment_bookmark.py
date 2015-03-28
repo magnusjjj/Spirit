@@ -8,9 +8,12 @@ from django.template import Template, Context
 from django.core.cache import cache
 from django.conf import settings
 
+from djconfig import config
+
 from . import utils
 
-from spirit.models.comment_bookmark import CommentBookmark, topic_viewed
+from spirit.models.comment_bookmark import CommentBookmark
+from spirit.signals.topic import topic_viewed
 from spirit.forms.comment_bookmark import BookmarkForm
 
 
@@ -43,7 +46,7 @@ class CommentBookmarkSignalTest(TestCase):
         self.category = utils.create_category()
         self.topic = utils.create_topic(category=self.category, user=self.user)
 
-        for _ in range(settings.ST_COMMENTS_PER_PAGE * 4):  # 4 pages
+        for _ in range(config.comments_per_page * 4):  # 4 pages
             utils.create_comment(user=self.user, topic=self.topic)
 
     def test_comment_bookmark_topic_page_viewed_handler(self):
@@ -51,18 +54,18 @@ class CommentBookmarkSignalTest(TestCase):
         topic_page_viewed_handler signal
         """
         page = 2
-        req = RequestFactory().get('/', data={settings.ST_COMMENTS_PAGE_VAR: str(page), })
+        req = RequestFactory().get('/', data={'page': str(page), })
         req.user = self.user
         topic_viewed.send(sender=self.topic.__class__, topic=self.topic, request=req)
         comment_bookmark = CommentBookmark.objects.get(user=self.user, topic=self.topic)
-        self.assertEqual(comment_bookmark.comment_number, settings.ST_COMMENTS_PER_PAGE * (page - 1) + 1)
+        self.assertEqual(comment_bookmark.comment_number, config.comments_per_page * (page - 1) + 1)
 
     def test_comment_bookmark_topic_page_viewed_handler_invalid_page(self):
         """
         invalid page
         """
         page = 'im_a_string'
-        req = RequestFactory().get('/', data={settings.ST_COMMENTS_PAGE_VAR: str(page), })
+        req = RequestFactory().get('/', data={'page': str(page), })
         req.user = self.user
         topic_viewed.send(sender=self.topic.__class__, topic=self.topic, request=req)
         self.assertEqual(len(CommentBookmark.objects.all()), 0)

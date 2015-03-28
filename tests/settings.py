@@ -10,7 +10,7 @@ import os
 from spirit.settings import *
 
 
-SECRET_KEY = 'change-me'
+SECRET_KEY = 'TEST'
 
 INSTALLED_APPS += (
     'tests',
@@ -33,18 +33,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'NAME': os.path.join(BASE_DIR, 'db_test.sqlite3'),
     }
 }
 
-CACHES = {
+CACHES.update({
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     },
-    'djconfig': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-    },
-}
+})
 
 # speedup tests requiring login
 PASSWORD_HASHERS = (

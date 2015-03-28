@@ -19,9 +19,9 @@ from django.utils.six import BytesIO
 
 from . import utils
 
-from spirit.models.comment import Comment,\
-    comment_like_post_create, comment_like_post_delete,\
-    topic_post_moderate
+from spirit.models.comment import Comment
+from spirit.signals.comment_like import comment_like_post_create, comment_like_post_delete
+from spirit.signals.topic_moderate import topic_post_moderate
 from spirit.forms.comment import CommentForm, CommentMoveForm, CommentImageForm
 from spirit.signals.comment import comment_post_update, comment_posted, comment_pre_update, comment_moved
 from spirit.templatetags.tags.comment import render_comments_form
@@ -160,8 +160,7 @@ class CommentViewTest(TestCase):
 
         utils.login(self)
         form_data = {'comment': 'foobar', }
-        response = self.client.post(reverse('spirit:comment-publish', kwargs={'topic_id': self.topic.pk, }),
-                                    form_data)
+        self.client.post(reverse('spirit:comment-publish', kwargs={'topic_id': self.topic.pk, }), form_data)
         self.assertEqual(self._comment.comment, 'foobar')
 
     def test_comment_publish_quote(self):
@@ -234,6 +233,21 @@ class CommentViewTest(TestCase):
         self.assertRedirects(response, expected_url, status_code=302, target_status_code=302)
         self.assertEqual(Comment.objects.get(pk=comment.pk).comment, 'barfoo')
 
+    def test_comment_update_moderator_private(self):
+        """
+        moderators can not update comments in private topics they has no access
+        """
+        User.objects.filter(pk=self.user.pk).update(is_moderator=True)
+        user = utils.create_user()
+        topic_private = utils.create_private_topic()
+        comment = utils.create_comment(user=user, topic=topic_private.topic)
+
+        utils.login(self)
+        form_data = {'comment': 'barfoo', }
+        response = self.client.post(reverse('spirit:comment-update', kwargs={'pk': comment.pk, }),
+                                    form_data)
+        self.assertEqual(response.status_code, 404)
+
     def test_comment_update_signal(self):
         """
         update comment, emit signal
@@ -249,8 +263,8 @@ class CommentViewTest(TestCase):
         utils.login(self)
         comment_posted = utils.create_comment(user=self.user, topic=self.topic)
         form_data = {'comment': 'barfoo', }
-        response = self.client.post(reverse('spirit:comment-update', kwargs={'pk': comment_posted.pk, }),
-                                    form_data)
+        self.client.post(reverse('spirit:comment-update', kwargs={'pk': comment_posted.pk, }),
+                         form_data)
         self.assertEqual(repr(self._comment_new), repr(Comment.objects.get(pk=comment_posted.pk)))
         self.assertEqual(repr(self._comment_old), repr(comment_posted))
 
@@ -441,24 +455,11 @@ class CommentTemplateTagTests(TestCase):
         utils.create_comment(topic=self.topic)
         utils.create_comment(topic=self.topic)
 
-    def test_get_comment_list(self):
-        """
-        should display all comment for a topic
-        """
-        out = Template(
-            "{% load spirit_tags %}"
-            "{% get_comment_list topic as comments %}"
-            "{% for c in comments %}"
-            "{{ c.comment }},"
-            "{% endfor %}"
-        ).render(Context({'topic': self.topic, }))
-        self.assertEqual(out, "foobar0,foobar1,foobar2,")
-
     def test_render_comments_form(self):
         """
         should display simple comment form
         """
-        out = Template(
+        Template(
             "{% load spirit_tags %}"
             "{% render_comments_form topic %}"
         ).render(Context({'topic': self.topic, }))

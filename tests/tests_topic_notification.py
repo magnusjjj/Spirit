@@ -11,12 +11,17 @@ from django.core.urlresolvers import reverse
 from django.core.cache import cache
 from django.template import Template, Context
 from django.utils import timezone
+from django.conf import settings
+
+from djconfig.utils import override_djconfig
 
 from . import utils
 from spirit.models.topic_private import TopicPrivate
 
-from spirit.models.topic_notification import TopicNotification, comment_posted, \
-    COMMENT, MENTION, topic_private_post_create, topic_private_access_pre_create, topic_viewed
+from spirit.models.topic_notification import TopicNotification, COMMENT, MENTION
+from spirit.signals.comment import comment_posted
+from spirit.signals.topic import topic_viewed
+from spirit.signals.topic_private import topic_private_post_create, topic_private_access_pre_create
 from spirit.forms.topic_notification import NotificationCreationForm, NotificationForm
 from spirit.templatetags.tags.topic_notification import render_notification_form, has_topic_notifications
 
@@ -51,6 +56,21 @@ class TopicNotificationViewTest(TestCase):
         utils.login(self)
         response = self.client.get(reverse('spirit:topic-notification-list'))
         self.assertQuerysetEqual(response.context['notifications'], map(repr, [self.topic_notification, ]))
+
+    @override_djconfig(topics_per_page=1)
+    def test_topic_notification_list_paginate(self):
+        """
+        topic notification list paginated
+        """
+        topic2 = utils.create_topic(self.category)
+        comment2 = utils.create_comment(topic=topic2)
+        topic_notification2 = TopicNotification.objects.create(user=self.user, topic=topic2,
+                                                               comment=comment2, is_active=True,
+                                                               action=COMMENT)
+
+        utils.login(self)
+        response = self.client.get(reverse('spirit:topic-notification-list'))
+        self.assertQuerysetEqual(response.context['notifications'], map(repr, [topic_notification2, ]))
 
     def test_topic_notification_list_show_private_topic(self):
         """
@@ -91,16 +111,16 @@ class TopicNotificationViewTest(TestCase):
         topic_c = utils.create_topic(category=category_removed)
         topic_d = utils.create_topic(category=subcategory)
         topic_e = utils.create_topic(category=subcategory_removed)
-        unread_a = TopicNotification.objects.create(user=self.user, topic=topic_a.topic,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_b = TopicNotification.objects.create(user=self.user, topic=topic_b,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_c = TopicNotification.objects.create(user=self.user, topic=topic_c,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_d = TopicNotification.objects.create(user=self.user, topic=topic_d,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_e = TopicNotification.objects.create(user=self.user, topic=topic_e,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_a.topic,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_b,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_c,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_d,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_e,
+                                         comment=self.comment, is_active=True, action=COMMENT)
         self.assertEqual(len(TopicNotification.objects.filter(user=self.user, is_active=True, is_read=False)), 5)
 
         utils.login(self)
@@ -272,6 +292,10 @@ class TopicNotificationFormTest(TestCase):
         """
         create notification
         """
+        # Should be ready to suscribe (true)
+        form = NotificationCreationForm()
+        self.assertEqual(form.fields['is_active'].initial, True)
+
         category = utils.create_category()
         topic = utils.create_topic(category)
         form_data = {'is_active': True, }
@@ -301,11 +325,7 @@ class TopicNotificationFormTest(TestCase):
         self.assertEqual(form.is_valid(), True)
 
 
-class TopicNotificationSignalTest(TransactionTestCase):
-
-    # Needed to work with migrations when using TransactionTestCase
-    available_apps = ["spirit", ]
-    serialized_rollback = True
+class TopicNotificationSignalTest(TestCase):
 
     def setUp(self):
         cache.clear()
@@ -458,16 +478,16 @@ class TopicNotificationTemplateTagsTest(TestCase):
         topic_c = utils.create_topic(category=category_removed)
         topic_d = utils.create_topic(category=subcategory)
         topic_e = utils.create_topic(category=subcategory_removed)
-        unread_a = TopicNotification.objects.create(user=self.user, topic=topic_a.topic,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_b = TopicNotification.objects.create(user=self.user, topic=topic_b,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_c = TopicNotification.objects.create(user=self.user, topic=topic_c,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_d = TopicNotification.objects.create(user=self.user, topic=topic_d,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
-        unread_e = TopicNotification.objects.create(user=self.user, topic=topic_e,
-                                                    comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_a.topic,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_b,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_c,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_d,
+                                         comment=self.comment, is_active=True, action=COMMENT)
+        TopicNotification.objects.create(user=self.user, topic=topic_e,
+                                         comment=self.comment, is_active=True, action=COMMENT)
 
         self.assertEqual(len(TopicNotification.objects.filter(user=self.user, is_active=True, is_read=False)), 5)
         self.assertFalse(has_topic_notifications(self.user))
@@ -476,7 +496,7 @@ class TopicNotificationTemplateTagsTest(TestCase):
         """
         should display the form
         """
-        out = Template(
+        Template(
             "{% load spirit_tags %}"
             "{% render_notification_form user topic %}"
         ).render(Context({'topic': self.topic, 'user': self.user}))

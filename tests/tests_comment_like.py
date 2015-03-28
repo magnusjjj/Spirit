@@ -9,6 +9,7 @@ from django.core.cache import cache
 
 from . import utils
 
+from spirit.models import Comment
 from spirit.models.comment_like import CommentLike
 from spirit.forms.comment_like import LikeForm
 from spirit.templatetags.tags.comment_like import render_like_form
@@ -128,7 +129,7 @@ class LikeTemplateTagsTest(TestCase):
             "{% render_like_form comment=comment like=like %}"
         )
         data = {'comment': self.comment, 'like': None}
-        out = template.render(Context(data))
+        template.render(Context(data))
         context = render_like_form(**data)
         self.assertEqual(context['next'], None)
         self.assertIsInstance(context['form'], LikeForm)
@@ -137,18 +138,6 @@ class LikeTemplateTagsTest(TestCase):
 
         like = CommentLike.objects.create(user=self.user, comment=self.comment)
         data['like'] = like
-        out = template.render(Context(data))
+        template.render(Context(data))
         context = render_like_form(**data)
         self.assertEqual(context['like'], like)
-
-    def test_like_populate_likes(self):
-        """
-        should populate comments likes, tell if current user liked the comment
-        """
-        like = CommentLike.objects.create(user=self.user, comment=self.comment)
-        out = Template(
-            "{% load spirit_tags %}"
-            "{% populate_likes comments=comments user=user %}"
-            "{{ comments.0.like }}"
-        ).render(Context({'comments': [self.comment, ], 'user': self.user}))
-        self.assertEqual(out, str(like))
