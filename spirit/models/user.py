@@ -48,13 +48,7 @@ class AbstractForumUser(models.Model):
 class AbstractUser(AbstractBaseUser, PermissionsMixin, AbstractForumUser):
     # almost verbatim copy from the auth user model
     # adds username(db_index=True), email(unique=True, blank=False, max_length=254)
-    username = models.CharField(_("username"), max_length=30, unique=True, db_index=True,
-                                help_text=_('Required. 30 characters or fewer. Letters, numbers and '
-                                            '@/./+/-/_ characters'),
-                                validators=[
-                                    validators.RegexValidator(re.compile('^[\w.@+-]+$'), _('Enter a valid username.'),
-                                                              'invalid')
-        ])
+    username = models.CharField(_("username"), max_length=254, unique=True, db_index=True)
     first_name = models.CharField(_("first name"), max_length=30, blank=True)
     last_name = models.CharField(_("last name"), max_length=30, blank=True)
     email = models.EmailField(_("email"), max_length=254, unique=True)
