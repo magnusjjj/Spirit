@@ -1,8 +1,8 @@
-# Spirit [![Build Status](https://travis-ci.org/nitely/Spirit.png)](https://travis-ci.org/nitely/Spirit) [![Coverage Status](https://coveralls.io/repos/nitely/Spirit/badge.png)](https://coveralls.io/r/nitely/Spirit)
+# Broken Spirit 
 
-Spirit is a Python based forum built using the Django framework.
+Broken Spirit is a Python based forum built using the Django framework.
 
-To see it in action, please visit [The Spirit Project](http://spirit-project.com/).
+Its based on Spirit by nitely, with some horrible patches to make the integration with GFE's membership system smoother.
 
 ## Requirements
 
