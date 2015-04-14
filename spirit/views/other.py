@@ -18,7 +18,7 @@ from spirit.forms.topic_poll import TopicPollForm, TopicPollChoiceFormSet
 
 from spirit.models.topic import Topic
 from spirit.forms.topic import TopicForm
-from spirit.signals.topic import topic_viewed, topic_post_moderate
+#from spirit.signals.topic import topic_viewed, topic_post_moderate
 
 
 @login_required

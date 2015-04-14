@@ -14,10 +14,16 @@ def forum_other(context, object):
 	content_t = ContentType.objects.get_for_model(object)
 	context["objectid"] = object.pk
 	context["typeid"] = content_t.pk
-
-	topics = Topic.objects.for_public().filter(other_category_content_type=content_t, other_category_id=object.pk)
-	topics = topics.order_by('-is_pinned', '-last_active').select_related('category')
-	categories = Category.objects.for_parent()
+	
+	topics = Topic.objects\
+			.visible()\
+			.with_bookmarks(user=context["user"])\
+			.filter(other_category_content_type=content_t, other_category_id=object.pk)\
+			.select_related('category')
+	
+	categories = Category.objects\
+        .visible()\
+        .parents()
 
 	context["categories"] = categories
 	context["topics"] = topics
