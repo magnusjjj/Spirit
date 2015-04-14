@@ -3,6 +3,8 @@ spirit/whoosh_index/
 db.sqlite3
 static/
 media/
+spirit/migrations/*
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
