@@ -43,7 +43,7 @@
                 {% if not c.action %}
                     <ul class="comment-actions">
                         {% if user.is_authenticated %}
-                            {% if user.is_moderator %}
+                            {% if user.is_moderator or c.user.pk == user.pk %}
                                 <li><a href="{% url "spirit:comment-delete" c.pk %}"><i class="fa fa-times"></i> {% trans "delete" %}</a></li>
                             {% endif %}
 

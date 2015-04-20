@@ -20,6 +20,7 @@ from ..utils import json_response, render_form_errors
 from ..models.comment import Comment
 from ..forms.comment import CommentForm, CommentMoveForm, CommentImageForm
 from ..signals.comment import comment_posted, comment_pre_update, comment_post_update, comment_moved
+from django.core.exceptions import PermissionDenied
 
 
 @login_required
@@ -72,10 +73,18 @@ def comment_update(request, pk):
 
     return render(request, 'spirit/comment/comment_update.html', context)
 
-
-@moderator_required
 def comment_delete(request, pk, remove=True):
     comment = get_object_or_404(Comment, pk=pk)
+    user = request.user
+    
+	# Check that the user is in fact logged in
+    if not user.is_authenticated():
+        return redirect_to_login(next=request.get_full_path(),
+                                     login_url=settings.LOGIN_URL)
+        
+    # And that the user is either a moderator or owns the comment
+    if not (user.pk == comment.user.pk or user.is_moderator):
+        raise PermissionDenied
 
     if request.method == 'POST':
         Comment.objects.filter(pk=pk)\
