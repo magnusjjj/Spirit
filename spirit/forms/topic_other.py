@@ -10,6 +10,8 @@ from spirit.models.category import Category
 
 from spirit.models.topic import Topic
 from django.contrib.contenttypes.models import ContentType, ContentTypeManager
+from django.conf import settings
+
 
 class TopicOtherForm(forms.ModelForm):
 	
