@@ -102,6 +102,7 @@ def topic_detail(request, pk, slug):
 
     comments = Comment.objects\
         .for_topic(topic=topic)\
+		.hide_deleted(user=request.user)\
         .with_likes(user=request.user)\
         .order_by('date')
 

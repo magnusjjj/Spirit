@@ -36,6 +36,19 @@ class CommentQuerySet(models.QuerySet):
     def _access(self, user):
         return self.filter(Q(topic__category__is_private=False) | Q(topic__topics_private__user=user))
 
+    def hide_deleted(self, user):
+        # This function hides all the comments that are deleted, unless:
+        # - You are the user who has had a comment deleted
+        # - You are a moderator
+        
+        if not user.is_authenticated():
+            return self.filter(is_removed=False)
+        else:
+            if user.is_moderator:
+                return self
+            else:
+                return self.filter(Q(user=user) | Q(is_removed=False))
+		
     def with_likes(self, user):
         if not user.is_authenticated():
             return self
