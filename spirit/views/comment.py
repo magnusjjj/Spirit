@@ -21,7 +21,7 @@ from ..models.comment import Comment
 from ..forms.comment import CommentForm, CommentMoveForm, CommentImageForm
 from ..signals.comment import comment_posted, comment_pre_update, comment_post_update, comment_moved
 from django.core.exceptions import PermissionDenied
-
+from server.models import Server, Volunteer
 
 @login_required
 @ratelimit(rate='1/10s')
@@ -76,6 +76,11 @@ def comment_update(request, pk):
 def comment_delete(request, pk, remove=True):
     comment = get_object_or_404(Comment, pk=pk)
     user = request.user
+    topic = comment.topic
+	
+	# Fixes so users that have moderation rights on servers actually have moderation rights
+    if request.user.is_authenticated() and type(topic.other_category) is Server:
+        user = Volunteer.patch_user_moderator(request.user, topic.other_category)
     
 	# Check that the user is in fact logged in
     if not user.is_authenticated():

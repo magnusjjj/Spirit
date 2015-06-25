@@ -21,7 +21,7 @@ from ..models.topic import Topic
 from ..forms.topic import TopicForm
 from ..signals.topic import topic_viewed
 from ..signals.topic_moderate import topic_post_moderate
-
+from server.models import Server, Volunteer
 
 @login_required
 @ratelimit(rate='1/10s')
@@ -111,12 +111,16 @@ def topic_detail(request, pk, slug):
         per_page=config.comments_per_page,
         page_number=request.GET.get('page', 1)
     )
-
+	
     context = {
         'topic': topic,
         'comments': comments
     }
-
+	
+    # Fixes so users that have moderation rights on servers actually have moderation rights
+    if request.user.is_authenticated() and type(topic.other_category) is Server:
+        context["user"] = Volunteer.patch_user_moderator(request.user, topic.other_category)
+	
     return render(request, 'spirit/topic/topic_detail.html', context)
 
 
