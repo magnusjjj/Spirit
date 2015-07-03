@@ -49,7 +49,7 @@ INSTALLED_APPS = (
 # python manage.py createcachetable spirit_cache
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'BACKEND': 'django.core.cache.backends.dummy.DummyCache',
         'LOCATION': 'spirit_cache',
     },
 }
