@@ -3,25 +3,24 @@
 from __future__ import unicode_literals
 
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponsePermanentRedirect
-
+from django.shortcuts import render, redirect, get_object_or_404
 from djconfig import config
 
-from ..utils.paginator import paginate, yt_paginate
-from ..utils.ratelimit.decorators import ratelimit
-from ..models.category import Category
-from ..models.comment import MOVED
+from profileapi.models import Volunteer
+from server.models import *
 from ..forms.comment import CommentForm
-from ..signals.comment import comment_posted
-from ..forms.topic_poll import TopicPollForm, TopicPollChoiceFormSet
-
-from ..models.comment import Comment
-from ..models.topic import Topic
 from ..forms.topic import TopicForm
+from ..forms.topic_poll import TopicPollForm, TopicPollChoiceFormSet
+from ..models.category import Category
+from ..models.comment import Comment
+from ..models.comment import MOVED
+from ..models.topic import Topic
+from ..signals.comment import comment_posted
 from ..signals.topic import topic_viewed
 from ..signals.topic_moderate import topic_post_moderate
-from server.models import Server, Volunteer
+from ..utils.paginator import paginate, yt_paginate
+from ..utils.ratelimit.decorators import ratelimit
 
 @login_required
 @ratelimit(rate='1/10s')
@@ -111,16 +110,16 @@ def topic_detail(request, pk, slug):
         per_page=config.comments_per_page,
         page_number=request.GET.get('page', 1)
     )
-	
+
     context = {
         'topic': topic,
         'comments': comments
     }
-	
+
     # Fixes so users that have moderation rights on servers actually have moderation rights
     if request.user.is_authenticated() and type(topic.other_category) is Server:
         context["user"] = Volunteer.patch_user_moderator(request.user, topic.other_category)
-	
+
     return render(request, 'spirit/topic/topic_detail.html', context)
 
 
