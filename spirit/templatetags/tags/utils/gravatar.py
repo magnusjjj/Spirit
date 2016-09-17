@@ -21,6 +21,6 @@ def get_gravatar_url(user, size, rating='g', default='identicon'):
 		return "".join((url, hash, '?', data))
 	else:
 		if user.image:
-			pass
+			return user.image.url
 		else:
 			return static('spirit/images/default.jpg')
