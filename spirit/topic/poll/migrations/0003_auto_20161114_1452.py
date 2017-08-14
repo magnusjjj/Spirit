@@ -13,13 +13,14 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RemoveField(
-            model_name='topicpoll',
-            name='topic',
-        ),
-        migrations.RemoveField(
             model_name='topicpollchoice',
             name='poll',
         ),
+        migrations.RemoveField(
+            model_name='topicpoll',
+            name='topic',
+        ),
+
         migrations.AlterUniqueTogether(
             name='topicpollvote',
             unique_together=set([]),
